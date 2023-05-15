@@ -1418,6 +1418,17 @@ class Markdown(object):
             (?P<id>.*?)
           \]
         ''', re.X | re.S)
+    _special_attribute = re.compile(r'''
+        [ \t]*
+        (
+          (?<=[ \t{]) # must-be-separated look-behind
+          \#[A-Za-z][-A-Za-z0-9_:.]* # html id
+          |
+          \.-?[_a-zA-Z]+[_a-zA-Z0-9-]* # css class
+          |
+          ([A-Za-z]+)=([A-Za-z0-9%.]+) # simple attribute
+        )
+        ''', re.X | re.S)
 
     _whitespace = re.compile(r'\s*')
 
@@ -1464,6 +1475,32 @@ class Markdown(object):
         if has_anglebrackets:
             url = self._strip_anglebrackets.sub(r'\1', url)
         return url, title, end_idx
+
+    def _extract_special_attributes(self, text, start, allowlist=None):
+        """Extracts the url and (optional) title from the tail of a link"""
+        # text[start] equals the opening parenthesis
+        idx = self._find_non_whitespace(text, start+1)
+        if idx == len(text):
+            return {}, start
+        end_idx = idx
+        end_idx = self._find_balanced(text, end_idx, "{", "}")
+        result = {}
+        classes = []
+        for match in self._special_attribute.finditer(text, idx, end_idx):
+            if match.group(1)[0] == "#":
+                if allowlist is None or match.group(1) in allowlist:
+                    result["id"] = match.group(1)[0][1:]
+            elif match.group(1)[0] == ".":
+                if allowlist is None or match.group(1) in allowlist:
+                    classes += [match.group(1)[0][1:]]
+            elif match.group(2):
+                attribute = match.group(2)
+                value = match.group(3)
+                if allowlist is None or attribute in allowlist:
+                    result[attribute] = _xml_escape_attr(value)
+        if len(classes):
+            result["class"] = " ".join(classes)
+        return result, end_idx
 
     def _protect_url(self, url):
         '''
@@ -1568,6 +1605,10 @@ class Markdown(object):
                     is_img = start_idx > 0 and text[start_idx-1] == "!"
                     if is_img:
                         start_idx -= 1
+                        attributes = {}
+                        if 'special-attributes' in self.extras:
+                            allowlist = self.extras['special-attributes'].get('img') if isinstance(self.extras, dict) else None
+                            attributes, url_end_idx = self._extract_special_attributes(text, url_end_idx, allowlist)
 
                     # We've got to encode these to avoid conflicting
                     # with italics/bold.
@@ -1582,11 +1623,12 @@ class Markdown(object):
                         title_str = ''
                     if is_img:
                         img_class_str = self._html_class_str_from_tag("img")
-                        result = '<img src="%s" alt="%s"%s%s%s' \
+                        result = '<img src="%s" alt="%s"%s%s%s%s' \
                             % (self._protect_url(url),
                                _xml_escape_attr(link_text),
                                title_str,
                                img_class_str,
+                               "".join(' %s="%s"' % item for item in attributes.items()),
                                self.empty_element_suffix)
                         if "smarty-pants" in self.extras:
                             result = result.replace('"', self._escape_table['"'])
@@ -1616,10 +1658,16 @@ class Markdown(object):
             else:
                 match = self._tail_of_reference_link_re.match(text, p)
                 if match:
+                    consume_end = match.end()
+
                     # Handle a reference-style anchor or img.
                     is_img = start_idx > 0 and text[start_idx-1] == "!"
                     if is_img:
                         start_idx -= 1
+                        attributes = {}
+                        if 'special-attributes' in self.extras:
+                            allowlist = self.extras['special-attributes'].get('img') if isinstance(self.extras, dict) else None
+                            attributes, consume_end = self._extract_special_attributes(text, consume_end, allowlist)
                     link_id = match.group("id").lower()
                     if not link_id:
                         link_id = link_text.lower()  # for links like [this][]
@@ -1639,16 +1687,17 @@ class Markdown(object):
                             title_str = ''
                         if is_img:
                             img_class_str = self._html_class_str_from_tag("img")
-                            result = '<img src="%s" alt="%s"%s%s%s' \
+                            result = '<img src="%s" alt="%s"%s%s%s%s' \
                                 % (self._protect_url(url),
                                    _xml_escape_attr(link_text),
                                    title_str,
+                                   "".join(' %s="%s"' % item for item in attributes.items()),
                                    img_class_str,
                                    self.empty_element_suffix)
                             if "smarty-pants" in self.extras:
                                 result = result.replace('"', self._escape_table['"'])
                             curr_pos = start_idx + len(result)
-                            text = text[:start_idx] + result + text[match.end():]
+                            text = text[:start_idx] + result + text[consume_end:]
                         elif start_idx >= anchor_allowed_pos:
                             if self.safe_mode and not self._safe_protocols.match(url):
                                 result_head = '<a href="#"%s>' % (title_str)
@@ -1661,13 +1710,13 @@ class Markdown(object):
                             # anchor_allowed_pos on.
                             curr_pos = start_idx + len(result_head)
                             anchor_allowed_pos = start_idx + len(result)
-                            text = text[:start_idx] + result + text[match.end():]
+                            text = text[:start_idx] + result + text[consume_end:]
                         else:
                             # Anchor not allowed here.
                             curr_pos = start_idx + 1
                     else:
                         # This id isn't defined, leave the markup alone.
-                        curr_pos = match.end()
+                        curr_pos = consume_end
                     continue
 
             # Otherwise, it isn't markup.
