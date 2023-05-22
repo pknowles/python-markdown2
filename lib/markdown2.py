@@ -305,7 +305,7 @@ class Markdown(object):
 
         if not isinstance(text, str):
             # TODO: perhaps shouldn't presume UTF-8 for string input?
-            text = str(text, 'utf-8')
+            text = text.decode('utf-8')
 
         if self.use_file_vars:
             # Look for emacs-style file variable hints.
@@ -741,7 +741,7 @@ class Markdown(object):
     _html_markdown_attr_re = re.compile(
         r'''\s+markdown=("1"|'1')''')
     def _hash_html_block_sub(self, match, raw=False):
-        if isinstance(match, str):
+        if isinstance(match, (str, unicode)):
             html = match
         else:
             html = match.group(1)
@@ -1740,7 +1740,7 @@ class Markdown(object):
             the TOC (if the "toc" extra is specified).
         """
         header_id = _slugify(text)
-        if prefix and isinstance(prefix, str):
+        if prefix and isinstance(prefix, (str, unicode)):
             header_id = prefix + '-' + header_id
 
         self._count_from_header_id[header_id] += 1
@@ -2001,7 +2001,8 @@ class Markdown(object):
             def _add_newline(self, inner):
                 # Add newlines around the inner contents so that _strict_tag_block_re matches the outer div.
                 yield 0, "\n"
-                yield from inner
+                for i in inner:
+                    yield i
                 yield 0, "\n"
 
             def wrap(self, source, outfile=None):
