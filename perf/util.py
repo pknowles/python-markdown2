@@ -30,14 +30,14 @@ def timeit(func):
             return func(*args, **kw)
         finally:
             total_time = clock() - start_time
-            print("%s took %.3fs" % (func.__name__, total_time))
+            print "%s took %.3fs" % (func.func_name, total_time)
     return wrapper
 
 def hotshotit(func):
     def wrapper(*args, **kw):
         import hotshot
         global hotshotProfilers
-        prof_name = func.__name__+".prof"
+        prof_name = func.func_name+".prof"
         profiler = hotshotProfilers.get(prof_name)
         if profiler is None:
             profiler = hotshot.Profile(prof_name)

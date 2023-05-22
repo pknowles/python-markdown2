@@ -21,6 +21,26 @@ try:
 finally:
     del sys.path[0]
 
+
+
+#---- Python version compat
+
+# Use `bytes` for byte strings and `unicode` for unicode strings (str in Py3).
+if sys.version_info[0] <= 2:
+    py3 = False
+    try:
+        bytes
+    except NameError:
+        bytes = str
+    base_string_type = basestring
+elif sys.version_info[0] >= 3:
+    py3 = True
+    unicode = str
+    base_string_type = str
+    unichr = chr
+
+
+
 #---- Test cases
 
 class _MarkdownTestCase(unittest.TestCase):
@@ -103,8 +123,12 @@ class _MarkdownTestCase(unittest.TestCase):
         def charreprreplace(exc):
             if not isinstance(exc, UnicodeEncodeError):
                 raise TypeError("don't know how to handle %r" % exc)
-            obj_repr = repr(exc.object[exc.start:exc.end])[1:-1]
-            return (str(obj_repr), exc.end)
+            if py3:
+                obj_repr = repr(exc.object[exc.start:exc.end])[1:-1]
+            else:
+                # repr -> remote "u'" and "'"
+                obj_repr = repr(exc.object[exc.start:exc.end])[2:-1]
+            return (unicode(obj_repr), exc.end)
         codecs.register_error("charreprreplace", charreprreplace)
 
         self.assertEqual(python_norm_html, norm_html, errmsg)
@@ -258,7 +282,7 @@ versions of markdown2.py this was pathologically slow:</p>
             '<p>some starter text</p>\n\n<pre><code>#!/usr/bin/python\nprint "hi"\n</code></pre>\n')
 
     def test_russian(self):
-        ko = '\\u043b\\u0449' # 'ko' on russian keyboard
+        ko = '\u043b\u0449' # 'ko' on russian keyboard
         self._assertMarkdown("## %s" % ko,
             '<h2>%s</h2>\n' % ko)
     test_russian.tags = ["unicode", "issue3"]
@@ -315,6 +339,13 @@ class DocTestsTestCase(unittest.TestCase):
         test = doctest.DocFileTest("api.doctests")
         test.runTest()
 
+    # Don't bother on Python 3 because (a) there aren't many inline doctests,
+    # and (b) they are more to be didactic than comprehensive test suites.
+    if not py3:
+        def test_internal(self):
+            doctest.testmod(markdown2)
+
+
 
 #---- internal support stuff
 
@@ -322,9 +353,9 @@ _xml_escape_re = re.compile(r'&#(x[0-9A-Fa-f]{2,3}|[0-9]{2,3});')
 def _xml_escape_sub(match):
     escape = match.group(1)
     if escape[0] == 'x':
-        return chr(int('0'+escape, base=16))
+        return unichr(int('0'+escape, base=16))
     else:
-        return chr(int(escape))
+        return unichr(int(escape))
 
 _markdown_email_link_re = re.compile(r'<a href="(.*?&#.*?)">(.*?)</a>', re.U)
 def _markdown_email_link_sub(match):
@@ -341,7 +372,7 @@ def norm_html_from_html(html):
 
     Also normalize EOLs.
     """
-    if not isinstance(html, str):
+    if not isinstance(html, unicode):
         html = html.decode('utf-8')
     html = _markdown_email_link_re.sub(
         _markdown_email_link_sub, html)
@@ -352,7 +383,7 @@ def norm_html_from_html(html):
 
 def _display(s):
     """Markup the given string for useful display."""
-    if not isinstance(s, str):
+    if not isinstance(s, unicode):
         s = s.decode("utf-8")
     s = _indent(_escaped_text_from_text(s, "whitespace"), 4)
     if not s.endswith('\n'):
@@ -499,7 +530,7 @@ def _escaped_text_from_text(text, escapes="eol"):
     # - Add _escaped_html_from_text() with a similar call sig.
     import re
 
-    if isinstance(escapes, str):
+    if isinstance(escapes, base_string_type):
         if escapes == "eol":
             escapes = {'\r\n': "\\r\\n\r\n", '\n': "\\n\n", '\r': "\\r\r"}
         elif escapes == "whitespace":
