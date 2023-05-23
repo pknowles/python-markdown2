@@ -1496,7 +1496,7 @@ class Markdown(object):
         """Extracts the url and (optional) title from the tail of a link"""
         # text[start] equals the opening parenthesis
         idx = self._find_non_whitespace(text, start+1)
-        if idx == len(text):
+        if idx == len(text) or text[start] != "{":
             return {}, start
         end_idx = idx
         end_idx = self._find_balanced(text, end_idx, "{", "}")
